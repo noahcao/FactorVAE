@@ -15,6 +15,8 @@ from model import FactorVAE1, FactorVAE2, Discriminator
 from dataset import return_data
 
 
+# torch.autograd.set_detect_anomaly(True)
+
 class Solver(object):
     def __init__(self, args):
         # Misc
@@ -74,6 +76,11 @@ class Solver(object):
             if not self.viz.win_exists(env=self.name+'/lines', win=self.win_id['D_z']):
                 self.viz_init()
 
+        self.viz_ll_iter = args.viz_ll_iter
+        self.viz_la_iter = args.viz_la_iter
+        self.viz_ra_iter = args.viz_ra_iter
+        self.viz_ta_iter = args.viz_ta_iter
+
         # Checkpoint
         self.ckpt_dir = os.path.join(args.ckpt_dir, args.name)
         self.ckpt_save_iter = args.ckpt_save_iter
@@ -87,12 +94,14 @@ class Solver(object):
         mkdirs(self.output_dir)
 
     def train(self):
+        # import pdb; pdb.set_trace()
         self.net_mode(train=True)
 
         ones = torch.ones(self.batch_size, dtype=torch.long, device=self.device)
         zeros = torch.zeros(self.batch_size, dtype=torch.long, device=self.device)
 
         out = False
+        # import pdb; pdb.set_trace()
         while not out:
             for x_true1, x_true2 in self.data_loader:
                 self.global_iter += 1
@@ -109,7 +118,7 @@ class Solver(object):
                 vae_loss = vae_recon_loss + vae_kld + self.gamma*vae_tc_loss
 
                 self.optim_VAE.zero_grad()
-                vae_loss.backward(retain_graph=True)
+                vae_loss.backward(retain_graph=True, inputs=list(self.VAE.parameters()))
                 self.optim_VAE.step()
 
                 x_true2 = x_true2.to(self.device)
@@ -119,7 +128,9 @@ class Solver(object):
                 D_tc_loss = 0.5*(F.cross_entropy(D_z, zeros) + F.cross_entropy(D_z_pperm, ones))
 
                 self.optim_D.zero_grad()
-                D_tc_loss.backward()
+                D_tc_loss.backward(inputs=list(self.D.parameters()))
+
+                # self.optim_VAE.step()
                 self.optim_D.step()
 
                 if self.global_iter%self.print_iter == 0:
@@ -151,7 +162,7 @@ class Solver(object):
                     self.visualize_recon()
                     self.image_gather.flush()
 
-                if self.viz_on and (self.global_iter%self.viz_ta_iter == 0):
+                if (self.global_iter%self.viz_ta_iter == 0):
                     if self.dataset.lower() == '3dchairs':
                         self.visualize_traverse(limit=2, inter=0.5)
                     else:
@@ -319,9 +330,12 @@ class Solver(object):
                     samples.append(sample)
                     gifs.append(sample)
             samples = torch.cat(samples, dim=0).cpu()
+            
             title = '{}_latent_traversal(iter:{})'.format(key, self.global_iter)
-            self.viz.images(samples, env=self.name+'/traverse',
+            if self.viz_on:
+                self.viz.images(samples, env=self.name+'/traverse',
                             opts=dict(title=title), nrow=len(interpolation))
+            
 
         if self.output_save:
             output_dir = os.path.join(self.output_dir, str(self.global_iter))
